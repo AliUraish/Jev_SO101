@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SO-101 · Live simulation</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#111619;color:#edf2ef;font:15px system-ui,sans-serif}
+main{max-width:1440px;margin:auto;padding:32px}header{display:flex;justify-content:space-between;align-items:center;gap:20px}
+h1{font-size:28px;letter-spacing:-1px;margin:4px 0 8px}.eyebrow{color:#93b3a5;text-transform:uppercase;font-size:12px;letter-spacing:2px}
+p{color:#aab7b1;margin:6px 0}button{border:1px solid #bc615c;background:#492b2b;color:#fff;border-radius:9px;padding:12px 22px;font:inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}.status{display:flex;gap:16px;align-items:center;margin:26px 0 20px;padding:18px;background:#1b2425;border:1px solid #334340;border-radius:12px}
+.dot{width:10px;height:10px;border-radius:50%;background:#d8b56d;flex-shrink:0}.status strong{display:block;font-size:18px}.status p{font-size:14px}
+time{margin-left:auto;color:#afbeb6;font-variant-numeric:tabular-nums;white-space:nowrap}
+.views{display:grid;grid-template-columns:1.5fr 1fr;gap:18px;align-items:start}figure{margin:0;overflow:hidden;border-radius:12px;border:1px solid #334340;background:#070a0b}
+figcaption{padding:13px 16px;display:flex;justify-content:space-between;color:#c2d0c8}figcaption span{color:#82948a;font-size:12px}
+img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain}.steps{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}.step{padding:9px 14px;border:1px solid #334340;border-radius:30px;color:#84968e;font-size:13px}.step.current{background:#d6e8df;color:#11251c;border-color:#d6e8df}.step.past{color:#b0d6c2;border-color:#507760}
+footer{margin-top:20px;color:#81958b;font-size:13px}a{color:#b0d6c2}@media(max-width:800px){main{padding:18px}.views{grid-template-columns:1fr}h1{font-size:23px}}
+</style>
+<main>
+<header><div><div class="eyebrow">Astra + Jev / Simulation</div><h1>SO-101, live in motion</h1><p>Pick up the blue block and place it inside the cup.</p></div><button id="stop">Stop simulation</button></header>
+<section class="status" aria-live="polite"><span class="dot" id="dot"></span><div><strong id="title">Connecting…</strong><p id="reason">Waiting for the live simulation.</p></div><time id="elapsed">0:00</time></section>
+<div class="views"><figure><figcaption>Overhead camera <span>WORKSPACE</span></figcaption><img id="overhead" alt="Live overhead view of the SO-101 arm, blue block, and cup"></figure><figure><figcaption>Wrist camera <span>GRIPPER VIEW</span></figcaption><img id="wrist" alt="Live view from the robot wrist"></figure></div>
+<nav class="steps" id="steps" aria-label="Task progress"></nav>
+<footer>Live camera views update during movement and model calls. The arm holds still while waiting for the next decision.</footer>
+</main>
+<script>
+const stages=['approach','grasp','lift','place','release','retract','verify'];
+const steps=document.querySelector('#steps');
+stages.forEach(s=>{const el=document.createElement('span');el.className='step';el.textContent=s[0].toUpperCase()+s.slice(1);steps.append(el)});
+let finished=false, closed=false, frameId=-1;
+const button=document.querySelector('#stop');
+button.onclick=async()=>{
+  button.disabled=true;
+  try{
+    const response=await fetch(finished?'/close':'/stop',{method:'POST',headers:{'X-View-Token':'__TOKEN__'}});
+    if(!response.ok)throw Error('Stop request failed');
+    if(finished){closed=true;document.querySelector('#title').textContent='Viewer closed';document.querySelector('#reason').textContent='You can close this tab.';button.textContent='Closed'}
+    else button.textContent='Stopping…';
+  }catch(e){button.disabled=false;document.querySelector('#reason').textContent='Could not send stop. Press Ctrl+C in the terminal.'}
+};
+async function frame(name,id){
+  const response=await fetch('/'+name+'.jpg?v='+id,{signal:AbortSignal.timeout(3000)});
+  if(!response.ok)return;
+  const blob=await response.blob(), img=document.getElementById(name), old=img.dataset.objectUrl;
+  const url=URL.createObjectURL(blob);img.src=url;img.dataset.objectUrl=url;
+  if(old)URL.revokeObjectURL(old);
+}
+async function tick(){
+  if(closed)return;
+  try{
+    const response=await fetch('/status',{signal:AbortSignal.timeout(3000)});
+    if(!response.ok)throw Error('Disconnected');
+    const s=await response.json();if(closed)return;finished=s.finished;
+    document.querySelector('#title').textContent=finished?(s.success?'Task complete':'Simulation stopped'):(s.active?'Arm moving':'Waiting for decision');
+    document.querySelector('#reason').textContent=s.camera_error?'Camera preview unavailable: '+s.camera_error:s.reason;
+    const seconds=Math.floor(s.elapsed_s);document.querySelector('#elapsed').textContent=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
+    document.querySelector('#dot').style.background=finished?(s.success?'#93d2ac':'#e08378'):(s.active?'#93d2ac':'#d8b56d');
+    if(finished){button.disabled=false;button.textContent='Close viewer'}
+    [...steps.children].forEach((el,i)=>{el.className='step'+(finished&&s.success?' past':i<stages.indexOf(s.stage)?' past':stages[i]===s.stage?' current':'')});
+    if(s.frame_id!==frameId){await Promise.all(['overhead','wrist'].map(n=>frame(n,s.frame_id)));frameId=s.frame_id}
+  }catch(e){if(closed)return;document.querySelector('#title').textContent='Viewer disconnected';document.querySelector('#reason').textContent='Check the simulation terminal. The last received camera frames remain below.'}
+  if(!closed)setTimeout(tick,100);
+}
+tick();
+</script>
+</html>

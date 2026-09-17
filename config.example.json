@@ -1,0 +1,21 @@
+{
+  "simulation_only": false,
+  "robot_id": "",
+  "robot_port": "",
+  "calibration_file": null,
+  "overhead_reference": null,
+  "cameras": {
+    "overhead": {"source": 0, "width": 640, "height": 480, "fps": 30},
+    "wrist": {"source": 1, "width": 640, "height": 480, "fps": 30}
+  },
+  "start_pose": null,
+  "joint_limits": {},
+  "skills": {
+    "approach": [],
+    "grasp": [],
+    "lift": [],
+    "place": [],
+    "release": [],
+    "retract": []
+  }
+}
